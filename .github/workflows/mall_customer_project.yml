@@ -1,38 +1,48 @@
-name: Mall Customers Clustering Pipeline
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       # Step 2: Set up Python
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: '3.10'
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       # Step 3: Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt
 
       # Step 4: Run clustering script
       - name: Run clustering
         run: |
-          python model/mall.py
+          if [ -f model/mall.py ]; then python model/mall.py; fi
 
-      # Step 5: Run Flask app test (headless)
+      - name: Run Unit Tests
+        run: |
+          python -m unittest discover -s tests
+
       - name: Test Flask App
         run: |
           nohup python model/app.py > app.log 2>&1 &
@@ -45,3 +55,13 @@ jobs:
         with:
           name: clustered-data
           path: model/Mall_Customers_Clustered.csv
+
+      - name: Deploy to Render
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          curl -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}"
